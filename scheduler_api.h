@@ -11,6 +11,13 @@ typedef struct {
     int priority;
 } JobSpec;
 
+typedef enum { ALGORITHM_SJF = 1, ALGORITHM_RR, ALGORITHM_HPF } SchedulingAlgorithm;
+
+/* Scheduler invocation (all numeric arguments are decimal):
+ * scheduler.out QUEUE_ID ALGORITHM QUANTUM SWITCH_TICKS RESOURCES_PATH
+ * QUANTUM is zero outside RR; RESOURCES_PATH is empty outside HPF.
+ * The generator owns the clock and queue. The scheduler detaches from
+ * the clock with destroyClk(false) and exits after all jobs finish. */
 typedef enum { ARRIVAL = 1, TICK_DONE, INPUT_DONE } ArrivalKind;
 
 typedef struct {
@@ -26,6 +33,8 @@ typedef struct {
 int arrival_queue_create(void);
 int arrival_queue_remove(int queue);
 int arrival_send(int queue, const ArrivalMessage *message);
+/* Same FIFO protocol as arrival_send; returns EAGAIN when the queue is full. */
+int arrival_try_send(int queue, const ArrivalMessage *message);
 int arrival_receive(int queue, ArrivalMessage *message);
 
 typedef struct {
@@ -57,6 +66,12 @@ typedef struct {
     int capture_time;
     int release_time;
 } ResourceUse;
+
+/* On success the caller owns the arrays. Jobs are returned in ID order.
+ * Resource uses are sorted by job ID and capture time. */
+int job_list_load(const char *path, JobSpec **jobs, size_t *count);
+int resource_plan_load(const char *path, ResourceUse **uses, size_t *count);
+void resource_plan_free(ResourceUse *uses, size_t count);
 
 typedef struct HpfState HpfState;
 

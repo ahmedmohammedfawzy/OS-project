@@ -15,3 +15,28 @@ make run
 # If you added a file to your project add it to the build section in the Makefile
 
 # Always start the line with a tab in Makefile, it is its syntax
+
+## Generator and worker handoff
+
+The generator uses `processes.txt` and, for HPF, `resources.txt`. To use other
+paths, run `./process_generator.out PROCESSES_PATH [RESOURCES_PATH]`. RR asks
+for a positive quantum and a nonnegative switch delay. Press Enter to use
+a switch delay of one tick.
+
+The generator launches `scheduler.out QUEUE_ID ALGORITHM QUANTUM SWITCH_TICKS
+RESOURCES_PATH`. Algorithms are 1 (SJF), 2 (RR), and 3 (HPF). Quantum is 0
+outside RR. The resource path is empty outside HPF. For HPF, the scheduler can
+call `resource_plan_load` and pass the result to its HPF module.
+
+- Start processing at simulation tick 1. The generator sends arrivals in ID
+  order, followed by `TICK_DONE` for each tick up to the final arrival. A tick
+  with no arrivals has just `TICK_DONE`. After `INPUT_DONE`, there are no more
+  batches to wait for. The scheduler should finish its queued jobs before exit.
+- At tick t, call `worker_tick` only for the worker assigned `[t-1, t)`.
+  Use the ACK to update the PCB before processing events and dispatching again.
+  Stop/resume as required by the policy. A stopped worker must be continued
+  before sending a tick. Ignore `SIGPIPE` in the scheduler so pipe failures can
+  be handled as errors. On a final ACK, close the pipes and reap using `waitpid`.
+- The generator owns the queue and clock lifetime. The scheduler should use
+  `destroyClk(false)` to detach. Keep workers in the scheduler's process group
+  so the generator can clean them up after interruption or scheduler failure.
