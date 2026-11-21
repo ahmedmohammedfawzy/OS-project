@@ -40,3 +40,53 @@ call `resource_plan_load` and pass the result to its HPF module.
 - The generator owns the queue and clock lifetime. The scheduler should use
   `destroyClk(false)` to detach. Keep workers in the scheduler's process group
   so the generator can clean them up after interruption or scheduler failure.
+
+## Person 2 scheduler core
+
+Each live job has one PCB with its input fields, acknowledged remaining CPU
+time and worker handle (PID and pipe descriptors). The scheduler keeps one
+running pointer and linked queues for ready and blocked jobs. The first
+dispatch starts process.out through worker_start. A preemption stops that
+same child with SIGSTOP and waits for confirmation. A later dispatch resumes
+it with SIGCONT. On a final worker acknowledgement the scheduler closes the
+pipes, waits for normal child exit, records the finish and frees the PCB.
+
+At each clock tick the scheduler accounts for the preceding CPU interval,
+applies resource events and completion, receives the entire arrival batch,
+then checks preemption and dispatch. The generator sends simultaneous
+arrivals in ID order. While the CPU switches, arrivals continue to enter
+the ready queue and workers consume no ticks. The next selection happens
+when the switch ends. Dispatch from idle is immediate.
+
+SJF scans the ready queue only at dispatch. It compares total runtime,
+arrival time and ID in that order. RR appends and removes jobs in constant
+time. At quantum expiry it renews a lone job's slice silently. If another
+job is ready, the interrupted job goes behind the current tick's arrivals
+and ahead of arrivals in subsequent switch ticks.
+
+All policies use the same event logger and performance accumulator.
+Waiting time is elapsed time since arrival minus executed CPU time,
+including switch and blocked time. Statistics use unrounded finish WTA
+values and a running mean and population variance. CPU utilization uses the
+absolute final finish tick. The generator accepts empty inputs, so this
+implementation emits an empty log and four zero metrics for that case.
+
+## HPF integration
+
+The scheduler uses the hpf_* interface in scheduler_api.h. It registers
+arrivals, delivers each acknowledged CPU tick (including the last one),
+applies unblock/block events and compares effective priorities. The HPF
+module owns resource release-before-capture ordering and inheritance.
+An hpf.c beside the Makefile is included automatically. For a different
+filename, build with make HPF_SRC=path/to/module.c. Until the teammate's
+module is linked, choosing algorithm 3 exits with an explanatory message.
+
+## Linux tests
+
+Run make test from the repository directory with GCC or another compatible
+C compiler, GNU Make and Python 3. The suite runs the real generator,
+clock, scheduler and child executables. Each run writes to a temporary
+directory. Run simulations sequentially because the clock uses key 300.
+The two PDF examples compare every log line and all four performance
+lines with the checked-in expected files under tests/examples. Edge cases
+also compare complete logs and reports against hand-specified timelines.
