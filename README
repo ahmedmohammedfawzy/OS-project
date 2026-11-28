@@ -24,9 +24,9 @@ for a positive quantum and a nonnegative switch delay. Press Enter to use
 a switch delay of one tick.
 
 The generator launches `scheduler.out QUEUE_ID ALGORITHM QUANTUM SWITCH_TICKS
-RESOURCES_PATH`. Algorithms are 1 (SJF), 2 (RR), and 3 (HPF). Quantum is 0
-outside RR. The resource path is empty outside HPF. For HPF, the scheduler can
-call `resource_plan_load` and pass the result to its HPF module.
+RESOURCES_PATH`. Algorithms are 1 (SJF), 2 (RR), 3 (HPF), and 4 (HPF with
+aging and demotion). Quantum is 0 outside RR. The resource path is empty
+outside the two HPF modes. Both HPF modes load the same resource plan.
 
 - Start processing at simulation tick 1. The generator sends arrivals in ID
   order, followed by `TICK_DONE` for each tick up to the final arrival. A tick
@@ -40,3 +40,59 @@ call `resource_plan_load` and pass the result to its HPF module.
 - The generator owns the queue and clock lifetime. The scheduler should use
   `destroyClk(false)` to detach. Keep workers in the scheduler's process group
   so the generator can clean them up after interruption or scheduler failure.
+
+## Person 2 scheduler core
+
+Each live job has one PCB with its input fields, acknowledged remaining CPU
+time and worker handle (PID and pipe descriptors). The scheduler keeps one
+running pointer and linked queues for ready and blocked jobs. The first
+dispatch starts process.out through worker_start. A preemption stops that
+same child with SIGSTOP and waits for confirmation. A later dispatch resumes
+it with SIGCONT. On a final worker acknowledgement the scheduler closes the
+pipes, waits for normal child exit, records the finish and frees the PCB.
+
+At each clock tick the scheduler accounts for the preceding CPU interval,
+applies resource events and completion, receives the entire arrival batch,
+then checks preemption and dispatch. The generator sends simultaneous
+arrivals in ID order. While the CPU switches, arrivals continue to enter
+the ready queue and workers consume no ticks. The next selection happens
+when the switch ends. Dispatch from idle is immediate.
+
+SJF scans the ready queue only at dispatch. It compares total runtime,
+arrival time and ID in that order. RR appends and removes jobs in constant
+time. At quantum expiry it renews a lone job's slice silently. If another
+job is ready, the interrupted job goes behind the current tick's arrivals
+and ahead of arrivals in subsequent switch ticks.
+
+All policies use the same event logger and performance accumulator.
+Waiting time is elapsed time since arrival minus executed CPU time,
+including switch and blocked time. Statistics use unrounded finish WTA
+values and a running mean and population variance. CPU utilization uses the
+absolute final finish tick. The generator accepts empty inputs, so this
+implementation emits an empty log and four zero metrics for that case.
+
+## HPF integration
+
+Select algorithm 3 to run HPF with priority inheritance. The scheduler uses
+the hpf_* interface in scheduler_api.h. It registers arrivals, delivers each
+acknowledged CPU tick, applies block and unblock events, and compares
+effective priorities. hpf.c owns each resource and its waiter list. It
+handles releases before captures at the same executed tick and transfers
+a released resource to the highest-priority waiter, breaking ties by job ID.
+The standard build always links hpf.c.
+
+Algorithm 4 also improves a ready job's priority after 20 consecutive ready
+ticks and again every 5 ticks. The scheduler records when each job enters the
+ready queue, so switch time counts and blocked time does not. Dispatch resets
+this timer. The running job keeps any inherited priority from resource waiters.
+
+## Linux tests
+
+Run make test from the repository directory in Linux or WSL. The Makefile
+runs the examples from the project brief using the real executables and
+compares scheduler.log and scheduler.perf with the expected files under
+tests/examples using diff. Both HPF algorithms run on both HPF workloads.
+The runs happen sequentially in a temporary directory because the clock uses
+key 300.
+
+The Phase 1 report draft is in REPORT.md.

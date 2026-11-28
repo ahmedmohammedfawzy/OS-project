@@ -11,7 +11,12 @@ typedef struct {
     int priority;
 } JobSpec;
 
-typedef enum { ALGORITHM_SJF = 1, ALGORITHM_RR, ALGORITHM_HPF } SchedulingAlgorithm;
+typedef enum {
+    ALGORITHM_SJF = 1,
+    ALGORITHM_RR,
+    ALGORITHM_HPF,
+    ALGORITHM_HPF_AGING
+} SchedulingAlgorithm;
 
 /* Scheduler invocation (all numeric arguments are decimal):
  * scheduler.out QUEUE_ID ALGORITHM QUANTUM SWITCH_TICKS RESOURCES_PATH
@@ -88,8 +93,8 @@ void hpf_destroy(HpfState *hpf);
 int hpf_add_job(HpfState *hpf, const JobSpec *job);
 
 /* Call once with each newly acknowledged executed time of a running job,
- * including its final tick. Apply returned PCB transitions before deciding
- * whether to preempt. Resource ownership and inheritance live here. */
+ * including its final tick, which releases resources and unregisters the job.
+ * Apply returned PCB transitions before deciding whether to preempt. */
 HpfEvents hpf_on_cpu_tick(HpfState *hpf, int job_id, int executed);
 /* Returns -1 for an unregistered job. Smaller values mean higher priority. */
 int hpf_effective_priority(const HpfState *hpf, int job_id);

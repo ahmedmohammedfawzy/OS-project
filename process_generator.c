@@ -274,7 +274,8 @@ int main(int argc, char *argv[])
     }
 
     int algorithm, quantum = 0, switch_ticks = 1;
-    if (prompt_number("Algorithm (1 SJF, 2 RR, 3 HPF): ", ALGORITHM_SJF, ALGORITHM_HPF, 0, &algorithm) ||
+    if (prompt_number("Algorithm (1 SJF, 2 RR, 3 HPF, 4 HPF with aging): ",
+                      ALGORITHM_SJF, ALGORITHM_HPF_AGING, 0, &algorithm) ||
         (algorithm == ALGORITHM_RR &&
          (prompt_number("RR quantum: ", 1, INT_MAX, 0, &quantum) ||
           prompt_number("RR context-switch ticks [1]: ", 0, INT_MAX, 1, &switch_ticks))))
@@ -283,7 +284,8 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Invalid scheduling selection or parameter.\n");
         goto cleanup;
     }
-    if (algorithm == ALGORITHM_HPF && validate_resources(resources_path, jobs, count))
+    int uses_resources = algorithm == ALGORITHM_HPF || algorithm == ALGORITHM_HPF_AGING;
+    if (uses_resources && validate_resources(resources_path, jobs, count))
         goto cleanup;
     if (count > 1)
         qsort(jobs, count, sizeof *jobs, compare_arrivals);
@@ -332,7 +334,7 @@ int main(int argc, char *argv[])
     snprintf(quantum_arg, sizeof quantum_arg, "%d", quantum);
     snprintf(switch_arg, sizeof switch_arg, "%d", switch_ticks);
     char *scheduler_args[] = { "./scheduler.out", queue_arg, algorithm_arg, quantum_arg,
-                              switch_arg, algorithm == ALGORITHM_HPF ? resources_path : "", NULL };
+                              switch_arg, uses_resources ? resources_path : "", NULL };
     scheduler = launch(scheduler_args);
     if (scheduler == -1)
     {
