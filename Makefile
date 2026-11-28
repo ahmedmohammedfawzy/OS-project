@@ -25,16 +25,18 @@ test: build
 		ln -s "$$root/$$exe.out" "$$work/$$exe.out"; \
 	done; \
 	cd "$$work"; \
-	for example in sjf rr hpf; do \
+	for run in sjf:1 rr:2 hpf:3 hpf:4 hpf-aging:3 hpf-aging:4; do \
+		example=$${run%:*}; algorithm=$${run#*:}; \
 		fixture="$$root/tests/examples/$$example"; \
-		printf 'Testing %s\n' "$$example"; \
+		expected=expected; \
+		if [ "$$run" = hpf-aging:3 ]; then expected=expected-plain; fi; \
+		printf 'Testing %s with algorithm %s\n' "$$example" "$$algorithm"; \
 		rm -f scheduler.log scheduler.perf; \
-		case "$$example" in \
-			sjf) printf '1\n';; \
-			rr)  printf '2\n3\n\n';; \
-			hpf) printf '3\n';; \
+		case "$$algorithm" in \
+			2) printf '2\n3\n\n';; \
+			*) printf '%s\n' "$$algorithm";; \
 		esac | timeout -k 5s 65s ./process_generator.out "$$fixture/processes.txt" "$$fixture/resources.txt"; \
-		diff -u --strip-trailing-cr "$$fixture/expected.log" scheduler.log; \
-		diff -u --strip-trailing-cr "$$fixture/expected.perf" scheduler.perf; \
+		diff -u --strip-trailing-cr "$$fixture/$$expected.log" scheduler.log; \
+		diff -u --strip-trailing-cr "$$fixture/$$expected.perf" scheduler.perf; \
 	done; \
-	printf 'All three scheduler examples passed.\n'
+	printf 'All scheduler example runs passed.\n'

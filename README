@@ -24,9 +24,9 @@ for a positive quantum and a nonnegative switch delay. Press Enter to use
 a switch delay of one tick.
 
 The generator launches `scheduler.out QUEUE_ID ALGORITHM QUANTUM SWITCH_TICKS
-RESOURCES_PATH`. Algorithms are 1 (SJF), 2 (RR), and 3 (HPF). Quantum is 0
-outside RR. The resource path is empty outside HPF. For HPF, the scheduler can
-call `resource_plan_load` and pass the result to its HPF module.
+RESOURCES_PATH`. Algorithms are 1 (SJF), 2 (RR), 3 (HPF), and 4 (HPF with
+aging and demotion). Quantum is 0 outside RR. The resource path is empty
+outside the two HPF modes. Both HPF modes load the same resource plan.
 
 - Start processing at simulation tick 1. The generator sends arrivals in ID
   order, followed by `TICK_DONE` for each tick up to the final arrival. A tick
@@ -81,12 +81,18 @@ handles releases before captures at the same executed tick and transfers
 a released resource to the highest-priority waiter, breaking ties by job ID.
 The standard build always links hpf.c.
 
+Algorithm 4 also improves a ready job's priority after 20 consecutive ready
+ticks and again every 5 ticks. The scheduler records when each job enters the
+ready queue, so switch time counts and blocked time does not. Dispatch resets
+this timer. The running job keeps any inherited priority from resource waiters.
+
 ## Linux tests
 
 Run make test from the repository directory in Linux or WSL. The Makefile
-runs the three examples from the project brief using the real executables and
+runs the examples from the project brief using the real executables and
 compares scheduler.log and scheduler.perf with the expected files under
-tests/examples using diff. The runs happen sequentially in a temporary
-directory because the clock uses key 300.
+tests/examples using diff. Both HPF algorithms run on both HPF workloads.
+The runs happen sequentially in a temporary directory because the clock uses
+key 300.
 
 The Phase 1 report draft is in REPORT.md.

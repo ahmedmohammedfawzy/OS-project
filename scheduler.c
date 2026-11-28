@@ -13,6 +13,7 @@ typedef struct PCB {
     JobSpec job;
     Worker worker;
     int remaining;
+    int ready_since;
     struct PCB *next;
 } PCB;
 
@@ -52,6 +53,12 @@ static void append(Queue *queue, PCB *p)
     queue->tail = p;
 }
 
+static void make_ready(Scheduler *s, PCB *p)
+{
+    p->ready_since = s->tick;
+    append(&s->ready, p);
+}
+
 static PCB *remove_after(Queue *queue, PCB *prev)
 {
     PCB *p = prev ? prev->next : queue->head;
@@ -65,13 +72,29 @@ static PCB *remove_after(Queue *queue, PCB *prev)
     return p;
 }
 
-/* RR takes the head in O(1). SJF scans only at dispatch. HPF uses live
- * effective priorities because a release can change the order mid-tick. */
+static int ready_priority(const Scheduler *s, const PCB *p)
+{
+    int priority = hpf_effective_priority(s->hpf, p->job.id);
+    if (s->algorithm != ALGORITHM_HPF_AGING)
+        return priority;
+
+    /* Switch time counts automatically while the job stays in Ready. */
+    int waited = s->tick - p->ready_since;
+    if (waited < 20)
+        return priority;
+    int aged = p->job.priority - (1 + (waited - 20) / 5);
+    if (aged < 0)
+        aged = 0;
+    return aged < priority ? aged : priority;
+}
+
+/* RR takes the head in O(1). SJF scans only at dispatch. HPF checks live
+ * ready priorities because both resource events and aging can change them. */
 static int preferred(const Scheduler *s, const PCB *a, const PCB *b)
 {
-    if (s->algorithm == ALGORITHM_HPF) {
-        int pa = hpf_effective_priority(s->hpf, a->job.id);
-        int pb = hpf_effective_priority(s->hpf, b->job.id);
+    if (s->hpf) {
+        int pa = ready_priority(s, a);
+        int pb = ready_priority(s, b);
         return pa == pb ? a->job.id < b->job.id : pa < pb;
     }
     if (a->job.runtime != b->job.runtime)
@@ -144,7 +167,10 @@ static int suspend_job(Scheduler *s, Queue *destination)
         return protocol_error();
     if (log_event(&s->report, s->tick, p, "stopped"))
         return -1;
-    append(destination, p);
+    if (destination == &s->ready)
+        make_ready(s, p);
+    else
+        append(destination, p);
     s->running = NULL;
     return 0;
 }
@@ -169,7 +195,7 @@ static int account_interval(Scheduler *s)
             }
             if (!w)
                 return protocol_error();
-            append(&s->ready, remove_after(&s->blocked, prev));
+            make_ready(s, remove_after(&s->blocked, prev));
         }
         if (events.running_blocked)
             return ack.finished ? protocol_error() : suspend_job(s, &s->blocked);
@@ -214,7 +240,7 @@ static int receive_batch(Scheduler *s)
             return -1;
         p->job = msg.job;
         p->remaining = msg.job.runtime;
-        append(&s->ready, p);
+        make_ready(s, p);
         if (s->hpf && hpf_add_job(s->hpf, &p->job))
             return -1;
     }
@@ -230,7 +256,7 @@ static int should_stop(Scheduler *s)
     if (s->hpf && s->ready.head) {
         PCB *prev = best_predecessor(s);
         PCB *best = prev ? prev->next : s->ready.head;
-        return hpf_effective_priority(s->hpf, best->job.id) <
+        return ready_priority(s, best) <
                hpf_effective_priority(s->hpf, s->running->job.id);
     }
     return 0;
@@ -239,6 +265,7 @@ static int should_stop(Scheduler *s)
 static int dispatch(Scheduler *s)
 {
     PCB *p = remove_after(&s->ready, best_predecessor(s));
+    p->ready_since = 0;
     s->running = p;
     s->slice = 0;
     int resume = p->worker.pid > 0;
@@ -312,12 +339,12 @@ int main(int argc, char **argv)
     }
     Scheduler s = { .queue = number(argv[1]), .algorithm = number(argv[2]),
                     .quantum = number(argv[3]), .delay = number(argv[4]) };
-    if (s.queue < 0 || s.algorithm < ALGORITHM_SJF || s.algorithm > ALGORITHM_HPF ||
+    if (s.queue < 0 || s.algorithm < ALGORITHM_SJF || s.algorithm > ALGORITHM_HPF_AGING ||
         (s.algorithm == ALGORITHM_RR ? s.quantum < 1 || s.delay < 0 : s.quantum != 0 || s.delay != 1)) {
         fprintf(stderr, "Invalid scheduler parameters\n");
         return EXIT_FAILURE;
     }
-    if (s.algorithm == ALGORITHM_HPF) {
+    if (s.algorithm == ALGORITHM_HPF || s.algorithm == ALGORITHM_HPF_AGING) {
         ResourceUse *uses;
         size_t count;
         if (resource_plan_load(argv[5], &uses, &count)) {

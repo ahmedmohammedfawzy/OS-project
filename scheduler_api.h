@@ -11,7 +11,12 @@ typedef struct {
     int priority;
 } JobSpec;
 
-typedef enum { ALGORITHM_SJF = 1, ALGORITHM_RR, ALGORITHM_HPF } SchedulingAlgorithm;
+typedef enum {
+    ALGORITHM_SJF = 1,
+    ALGORITHM_RR,
+    ALGORITHM_HPF,
+    ALGORITHM_HPF_AGING
+} SchedulingAlgorithm;
 
 /* Scheduler invocation (all numeric arguments are decimal):
  * scheduler.out QUEUE_ID ALGORITHM QUANTUM SWITCH_TICKS RESOURCES_PATH
