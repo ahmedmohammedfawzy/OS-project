@@ -69,15 +69,11 @@ static PCB *remove_after(Queue *queue, PCB *prev)
  * effective priorities because a release can change the order mid-tick. */
 static int preferred(const Scheduler *s, const PCB *a, const PCB *b)
 {
-#ifdef HAVE_HPF
     if (s->algorithm == ALGORITHM_HPF) {
         int pa = hpf_effective_priority(s->hpf, a->job.id);
         int pb = hpf_effective_priority(s->hpf, b->job.id);
         return pa == pb ? a->job.id < b->job.id : pa < pb;
     }
-#else
-    (void)s;
-#endif
     if (a->job.runtime != b->job.runtime)
         return a->job.runtime < b->job.runtime;
     if (a->job.arrival != b->job.arrival)
@@ -163,7 +159,6 @@ static int account_interval(Scheduler *s)
         return protocol_error();
     p->remaining = ack.remaining;
     ++s->slice;
-#ifdef HAVE_HPF
     if (s->hpf) {
         HpfEvents events = hpf_on_cpu_tick(s->hpf, p->job.id, p->job.runtime - p->remaining);
         if (events.waiter_readied) {
@@ -179,7 +174,6 @@ static int account_interval(Scheduler *s)
         if (events.running_blocked)
             return ack.finished ? protocol_error() : suspend_job(s, &s->blocked);
     }
-#endif
     if (ack.finished) {
         int status;
         worker_close(&p->worker);
@@ -221,10 +215,8 @@ static int receive_batch(Scheduler *s)
         p->job = msg.job;
         p->remaining = msg.job.runtime;
         append(&s->ready, p);
-#ifdef HAVE_HPF
         if (s->hpf && hpf_add_job(s->hpf, &p->job))
             return -1;
-#endif
     }
     return 0;
 }
@@ -235,14 +227,12 @@ static int should_stop(Scheduler *s)
         s->slice = 0;
         return s->ready.head != NULL;
     }
-#ifdef HAVE_HPF
     if (s->hpf && s->ready.head) {
         PCB *prev = best_predecessor(s);
         PCB *best = prev ? prev->next : s->ready.head;
         return hpf_effective_priority(s->hpf, best->job.id) <
                hpf_effective_priority(s->hpf, s->running->job.id);
     }
-#endif
     return 0;
 }
 
@@ -328,7 +318,6 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
     if (s.algorithm == ALGORITHM_HPF) {
-#ifdef HAVE_HPF
         ResourceUse *uses;
         size_t count;
         if (resource_plan_load(argv[5], &uses, &count)) {
@@ -341,10 +330,6 @@ int main(int argc, char **argv)
             perror("Create HPF policy");
             return EXIT_FAILURE;
         }
-#else
-        fprintf(stderr, "HPF module missing; rebuild with HPF_SRC pointing to its implementation.\n");
-        return EXIT_FAILURE;
-#endif
     }
     initClk();
     s.report.log = fopen("scheduler.log", "w");
@@ -356,10 +341,8 @@ int main(int argc, char **argv)
     dispose(s.running);
     dispose(s.ready.head);
     dispose(s.blocked.head);
-#ifdef HAVE_HPF
     if (s.hpf)
         hpf_destroy(s.hpf);
-#endif
     if (s.report.log && fclose(s.report.log))
         failed = 1;
     if (s.report.perf && fclose(s.report.perf))

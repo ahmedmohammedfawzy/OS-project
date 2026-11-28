@@ -73,20 +73,20 @@ implementation emits an empty log and four zero metrics for that case.
 
 ## HPF integration
 
-The scheduler uses the hpf_* interface in scheduler_api.h. It registers
-arrivals, delivers each acknowledged CPU tick (including the last one),
-applies unblock/block events and compares effective priorities. The HPF
-module owns resource release-before-capture ordering and inheritance.
-An hpf.c beside the Makefile is included automatically. For a different
-filename, build with make HPF_SRC=path/to/module.c. Until the teammate's
-module is linked, choosing algorithm 3 exits with an explanatory message.
+Select algorithm 3 to run HPF with priority inheritance. The scheduler uses
+the hpf_* interface in scheduler_api.h. It registers arrivals, delivers each
+acknowledged CPU tick, applies block and unblock events, and compares
+effective priorities. hpf.c owns each resource and its waiter list. It
+handles releases before captures at the same executed tick and transfers
+a released resource to the highest-priority waiter, breaking ties by job ID.
+The standard build always links hpf.c.
 
 ## Linux tests
 
-Run make test from the repository directory with GCC or another compatible
-C compiler, GNU Make and Python 3. The suite runs the real generator,
-clock, scheduler and child executables. Each run writes to a temporary
-directory. Run simulations sequentially because the clock uses key 300.
-The two PDF examples compare every log line and all four performance
-lines with the checked-in expected files under tests/examples. Edge cases
-also compare complete logs and reports against hand-specified timelines.
+Run make test from the repository directory in Linux or WSL. The Makefile
+runs the three examples from the project brief using the real executables and
+compares scheduler.log and scheduler.perf with the expected files under
+tests/examples using diff. The runs happen sequentially in a temporary
+directory because the clock uses key 300.
+
+The Phase 1 report draft is in REPORT.md.
